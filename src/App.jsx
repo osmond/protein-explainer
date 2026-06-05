@@ -48,6 +48,7 @@ export default function App() {
   const [highlights,  setHighlights]  = useState([])
   const [prefill,     setPrefill]     = useState(null)
   const [splitPct,    setSplitPct]    = useState(60)
+  const [mobileTab,   setMobileTab]   = useState('viewer')
   const isResizing = useRef(false)
 
   const handleLoad = useCallback(async (id) => {
@@ -113,8 +114,24 @@ export default function App() {
 
       {metaError && <div className="meta-error">{metaError}</div>}
 
+      {/* Mobile-only tab switcher */}
+      <nav className="mobile-tabs">
+        <button
+          className={`mobile-tab ${mobileTab === 'viewer' ? 'active' : ''}`}
+          onClick={() => setMobileTab('viewer')}
+        >
+          3D Viewer
+        </button>
+        <button
+          className={`mobile-tab ${mobileTab === 'chat' ? 'active' : ''}`}
+          onClick={() => setMobileTab('chat')}
+        >
+          Chat
+        </button>
+      </nav>
+
       <div className="app-body">
-        <div className="viewer-panel" style={{ flex: `0 0 ${splitPct}%` }}>
+        <div className={`viewer-panel${mobileTab === 'chat' ? ' mobile-hidden' : ''}`} style={{ flex: `0 0 ${splitPct}%` }}>
           <ProteinViewer
             pdbId={pdbId}
             highlights={highlights}
@@ -134,7 +151,7 @@ export default function App() {
           onTouchStart={startResize}
         />
 
-        <div className="chat-side">
+        <div className={`chat-side${mobileTab === 'viewer' ? ' mobile-hidden' : ''}`}>
           <ChatPanel
             protein={protein}
             onHighlight={setHighlights}
