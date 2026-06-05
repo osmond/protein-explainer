@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 
-// Extract residue mentions like His93, Lys41, Cys220, etc.
 const RESIDUE_RE = /\b(Ala|Arg|Asn|Asp|Cys|Gln|Glu|Gly|His|Ile|Leu|Lys|Met|Phe|Pro|Ser|Thr|Trp|Tyr|Val)(\d+)\b/g
 
 function parseHighlights(text) {
@@ -32,7 +32,6 @@ export default function ChatPanel({ protein, onHighlight }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [history])
 
-  // Reset chat when protein changes
   useEffect(() => {
     setHistory([])
     onHighlight([])
@@ -61,8 +60,7 @@ export default function ChatPanel({ protein, onHighlight }) {
         const { done, value } = await reader.read()
         if (done) break
         const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
-        for (const line of lines) {
+        for (const line of chunk.split('\n')) {
           if (!line.startsWith('data: ')) continue
           const data = line.slice(6)
           if (data === '[DONE]') continue
@@ -81,7 +79,6 @@ export default function ChatPanel({ protein, onHighlight }) {
         }
       }
 
-      // Highlight residues after full response
       onHighlight(parseHighlights(fullText))
     } catch (err) {
       setHistory(h => {
@@ -106,29 +103,39 @@ export default function ChatPanel({ protein, onHighlight }) {
       <div className="chat-messages">
         {history.length === 0 ? (
           <div className="chat-empty">
-            {protein
-              ? <>
-                  <p className="chat-empty-title">Ask anything about {protein.title || protein.id}</p>
-                  <div className="preset-questions">
-                    {PRESET_QUESTIONS.map(q => (
-                      <button key={q} className="preset-btn" onClick={() => send(q)}>
-                        {q}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              : <p className="chat-empty-title">Load a protein to start asking questions</p>
-            }
+            {protein ? (
+              <>
+                <p className="chat-empty-title">Ask anything about {protein.title || protein.id}</p>
+                <div className="preset-questions">
+                  {PRESET_QUESTIONS.map(q => (
+                    <button key={q} className="preset-btn" onClick={() => send(q)}>{q}</button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="chat-empty-title">Load a protein to start asking questions</p>
+            )}
           </div>
         ) : (
-          history.map((msg, i) => (
-            <div key={i} className={`message message-${msg.role}`}>
-              <div className="message-label">{msg.role === 'user' ? 'You' : 'Claude'}</div>
-              <div className="message-content">
-                {msg.content || (streaming && i === history.length - 1 ? <span className="cursor" /> : '')}
+          history.map((msg, i) => {
+            const isLastAssistant = msg.role === 'assistant' && i === history.length - 1
+            const showCursor = streaming && isLastAssistant && msg.content === ''
+            return (
+              <div key={i} className={`message message-${msg.role}`}>
+                <div className="message-label">{msg.role === 'user' ? 'You' : 'Protein Explainer'}</div>
+                <div className="message-body">
+                  {msg.role === 'user' ? (
+                    <div className="message-content">{msg.content}</div>
+                  ) : (
+                    <ReactMarkdown className="message-content">
+                      {msg.content + (streaming && isLastAssistant ? '​' : '')}
+                    </ReactMarkdown>
+                  )}
+                  {showCursor && <span className="cursor" />}
+                </div>
               </div>
-            </div>
-          ))
+            )
+          })
         )}
         <div ref={bottomRef} />
       </div>
