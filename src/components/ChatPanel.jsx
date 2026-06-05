@@ -21,26 +21,47 @@ const PRESET_QUESTIONS = [
   'How does this protein interact with its partners?',
 ]
 
-export default function ChatPanel({ protein, onHighlight }) {
-  const [history, setHistory] = useState([])
-  const [input, setInput] = useState('')
+export default function ChatPanel({ protein, onHighlight, prefillQuestion, onPrefillUsed }) {
+  const [history,   setHistory]   = useState([])
+  const [input,     setInput]     = useState('')
   const [streaming, setStreaming] = useState(false)
-  const bottomRef = useRef(null)
+  const bottomRef   = useRef(null)
   const textareaRef = useRef(null)
 
+  // Scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [history])
 
+  // Load saved history when protein changes
   useEffect(() => {
-    setHistory([])
+    if (!protein?.id) return
+    try {
+      const saved = localStorage.getItem(`chat-${protein.id}`)
+      if (saved) setHistory(JSON.parse(saved))
+      else       setHistory([])
+    } catch { setHistory([]) }
     onHighlight([])
   }, [protein?.id])
+
+  // Save history whenever it changes
+  useEffect(() => {
+    if (!protein?.id || history.length === 0) return
+    localStorage.setItem(`chat-${protein.id}`, JSON.stringify(history))
+  }, [history, protein?.id])
+
+  // Pre-fill input when user clicks a residue in the viewer
+  useEffect(() => {
+    if (!prefillQuestion) return
+    setInput(prefillQuestion)
+    textareaRef.current?.focus()
+    onPrefillUsed?.()
+  }, [prefillQuestion])
 
   async function send(question) {
     if (!question.trim() || streaming) return
     setInput('')
-    const userMsg = { role: 'user', content: question }
+    const userMsg      = { role: 'user',      content: question }
     const assistantMsg = { role: 'assistant', content: '' }
     setHistory(h => [...h, userMsg, assistantMsg])
     setStreaming(true)
@@ -52,15 +73,14 @@ export default function ChatPanel({ protein, onHighlight }) {
         body: JSON.stringify({ question, history, protein }),
       })
 
-      const reader = res.body.getReader()
+      const reader  = res.body.getReader()
       const decoder = new TextDecoder()
-      let fullText = ''
+      let fullText  = ''
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        const chunk = decoder.decode(value)
-        for (const line of chunk.split('\n')) {
+        for (const line of decoder.decode(value).split('\n')) {
           if (!line.startsWith('data: ')) continue
           const data = line.slice(6)
           if (data === '[DONE]') continue
@@ -78,7 +98,6 @@ export default function ChatPanel({ protein, onHighlight }) {
           } catch {}
         }
       }
-
       onHighlight(parseHighlights(fullText))
     } catch (err) {
       setHistory(h => {
@@ -91,15 +110,44 @@ export default function ChatPanel({ protein, onHighlight }) {
     }
   }
 
+  function clearHistory() {
+    setHistory([])
+    onHighlight([])
+    if (protein?.id) localStorage.removeItem(`chat-${protein.id}`)
+  }
+
+  function exportChat() {
+    const sep  = '─'.repeat(50)
+    const header = `Protein Explainer — ${protein?.title || protein?.id || 'Unknown'}\n${'═'.repeat(50)}\n\n`
+    const body = history.map(m =>
+      `${m.role === 'user' ? 'You' : 'Protein Explainer'}\n${sep}\n${m.content}\n`
+    ).join('\n')
+    const blob = new Blob([header + body], { type: 'text/plain' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `${protein?.id || 'protein'}-conversation.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   function handleKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send(input)
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
   }
 
   return (
     <div className="chat-panel">
+      {history.length > 0 && (
+        <div className="chat-toolbar">
+          <button className="toolbar-btn" onClick={exportChat} title="Export conversation">
+            ↓ Export
+          </button>
+          <button className="toolbar-btn" onClick={clearHistory} title="Clear conversation">
+            ✕ Clear
+          </button>
+        </div>
+      )}
+
       <div className="chat-messages">
         {history.length === 0 ? (
           <div className="chat-empty">
@@ -118,8 +166,7 @@ export default function ChatPanel({ protein, onHighlight }) {
           </div>
         ) : (
           history.map((msg, i) => {
-            const isLastAssistant = msg.role === 'assistant' && i === history.length - 1
-            const showCursor = streaming && isLastAssistant && msg.content === ''
+            const isLast = streaming && i === history.length - 1 && msg.role === 'assistant'
             return (
               <div key={i} className={`message message-${msg.role}`}>
                 <div className="message-label">{msg.role === 'user' ? 'You' : 'Protein Explainer'}</div>
@@ -128,10 +175,10 @@ export default function ChatPanel({ protein, onHighlight }) {
                     <div className="message-content">{msg.content}</div>
                   ) : (
                     <ReactMarkdown className="message-content">
-                      {msg.content + (streaming && isLastAssistant ? '​' : '')}
+                      {msg.content}
                     </ReactMarkdown>
                   )}
-                  {showCursor && <span className="cursor" />}
+                  {isLast && msg.content === '' && <span className="cursor" />}
                 </div>
               </div>
             )
@@ -147,7 +194,7 @@ export default function ChatPanel({ protein, onHighlight }) {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={protein ? 'Ask about the structure…' : 'Load a protein first'}
+          placeholder={protein ? 'Ask about the structure… or click an atom in the viewer' : 'Load a protein first'}
           disabled={!protein || streaming}
           rows={1}
         />
